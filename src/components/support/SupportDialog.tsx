@@ -18,6 +18,7 @@ import apiClient from '@/api/services/apiClient';
 
 const TURNSTILE_SCRIPT_ID = 'cf-turnstile-script';
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_NOT_CONFIGURED_MESSAGE = 'Human verification is not configured for this environment.';
 const TURNSTILE_UNAVAILABLE_MESSAGE = 'Human verification is currently unavailable. Please try again later.';
 const TURNSTILE_EXPIRED_MESSAGE = 'Verification expired. Please complete it again.';
 const TURNSTILE_FAILED_MESSAGE = 'Verification failed. Please try again.';
@@ -28,7 +29,7 @@ interface TurnstileOptions {
   sitekey: string;
   callback: (token: string)=> void;
   'expired-callback': ()=> void;
-  'error-callback': ()=> void;
+  'error-callback': (errorCode: string)=> void;
 }
 
 interface TurnstileApi {
@@ -40,6 +41,29 @@ declare global {
   interface Window {
     turnstile?: TurnstileApi;
   }
+}
+
+async function waitForTurnstileApi(timeoutMs = 4000): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (window.turnstile) {
+      resolve();
+      return;
+    }
+
+    let timeoutId = 0;
+    const intervalId = window.setInterval(() => {
+      if (window.turnstile) {
+        window.clearInterval(intervalId);
+        window.clearTimeout(timeoutId);
+        resolve();
+      }
+    }, 50);
+
+    timeoutId = window.setTimeout(() => {
+      window.clearInterval(intervalId);
+      reject(new Error('Turnstile API unavailable'));
+    }, timeoutMs);
+  });
 }
 
 async function loadTurnstileScript(): Promise<void> {
@@ -60,7 +84,9 @@ async function loadTurnstileScript(): Promise<void> {
         return;
       }
       if (existingScript.dataset.loaded === 'true') {
-        reject(new Error('Turnstile API unavailable'));
+        void waitForTurnstileApi()
+          .then(() => resolve())
+          .catch((err: unknown) => reject(err));
         return;
       }
       if (existingScript.dataset.error === 'true') {
@@ -68,11 +94,9 @@ async function loadTurnstileScript(): Promise<void> {
         return;
       }
       existingScript.addEventListener('load', () => {
-        if (!window.turnstile) {
-          reject(new Error('Turnstile API unavailable'));
-          return;
-        }
-        resolve();
+        void waitForTurnstileApi()
+          .then(() => resolve())
+          .catch((err: unknown) => reject(err));
       }, { once: true });
       existingScript.addEventListener('error', () => reject(new Error('Failed to load Turnstile script')), { once: true });
       return;
@@ -85,11 +109,9 @@ async function loadTurnstileScript(): Promise<void> {
     script.defer = true;
     script.addEventListener('load', () => {
       script.dataset.loaded = 'true';
-      if (!window.turnstile) {
-        reject(new Error('Turnstile API unavailable'));
-        return;
-      }
-      resolve();
+      void waitForTurnstileApi()
+        .then(() => resolve())
+        .catch((err: unknown) => reject(err));
     }, { once: true });
     script.addEventListener('error', () => {
       script.dataset.error = 'true';
@@ -166,7 +188,7 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps): React
 
     const siteKey = turnstileSiteKey?.trim();
     if (!siteKey) {
-      setTurnstileError(TURNSTILE_UNAVAILABLE_MESSAGE);
+      setTurnstileError(TURNSTILE_NOT_CONFIGURED_MESSAGE);
       return;
     }
 
@@ -190,20 +212,27 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps): React
             setTurnstileToken('');
             setTurnstileError(TURNSTILE_EXPIRED_MESSAGE);
           },
-          'error-callback': (): void => {
+          'error-callback': (errorCode: string): void => {
             setTurnstileToken('');
-            setTurnstileError(TURNSTILE_FAILED_MESSAGE);
+            console.error('Turnstile verification error', errorCode);
+            setTurnstileError(`${TURNSTILE_FAILED_MESSAGE} (code: ${errorCode})`);
           },
         });
 
         widgetIdRef.current = currentWidgetId;
         setWidgetId(currentWidgetId);
         setIsTurnstileReady(true);
-      } catch {
+      } catch (err) {
         if (isCancelled) {
           return;
         }
-        setTurnstileError(TURNSTILE_UNAVAILABLE_MESSAGE);
+        console.error('Turnstile initialization failed', err);
+        const errorMessage = err instanceof Error ? err.message.toLowerCase() : '';
+        if (errorMessage.includes('script') || errorMessage.includes('api unavailable')) {
+          setTurnstileError(TURNSTILE_UNAVAILABLE_MESSAGE);
+          return;
+        }
+        setTurnstileError(TURNSTILE_FAILED_MESSAGE);
       }
     };
 
