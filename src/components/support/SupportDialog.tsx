@@ -18,12 +18,13 @@ import apiClient from '@/api/services/apiClient';
 
 const TURNSTILE_SCRIPT_ID = 'cf-turnstile-script';
 const TURNSTILE_SCRIPT_SRC = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+const TURNSTILE_CONTAINER_ID = 'support-turnstile-widget';
 const TURNSTILE_NOT_CONFIGURED_MESSAGE = 'Human verification is not configured for this environment.';
 const TURNSTILE_UNAVAILABLE_MESSAGE = 'Human verification is currently unavailable. Please try again later.';
 const TURNSTILE_EXPIRED_MESSAGE = 'Verification expired. Please complete it again.';
 const TURNSTILE_FAILED_MESSAGE = 'Verification failed. Please try again.';
 
-let turnstileScriptPromise: Promise<void> | null = null;
+let turnstileScriptPromise: Promise<TurnstileApi> | null = null;
 
 interface TurnstileOptions {
   sitekey: string;
@@ -34,28 +35,47 @@ interface TurnstileOptions {
 
 interface TurnstileApi {
   render: (container: HTMLElement, options: TurnstileOptions)=> string;
-  remove: (widgetId: string)=> void;
+  remove?: (widgetId: string)=> void;
 }
 
 declare global {
   interface Window {
-    turnstile?: TurnstileApi;
+    turnstile?: unknown;
   }
 }
 
-async function waitForTurnstileApi(timeoutMs = 4000): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    if (window.turnstile) {
-      resolve();
+function isTurnstileApi(value: unknown): value is TurnstileApi {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Partial<TurnstileApi>;
+  return typeof candidate.render === 'function';
+}
+
+function getTurnstileApi(): TurnstileApi | null {
+  if (!isTurnstileApi(window.turnstile)) {
+    return null;
+  }
+
+  return window.turnstile;
+}
+
+async function waitForTurnstileApi(timeoutMs = 4000): Promise<TurnstileApi> {
+  return new Promise<TurnstileApi>((resolve, reject) => {
+    const initialApi = getTurnstileApi();
+    if (initialApi) {
+      resolve(initialApi);
       return;
     }
 
     let timeoutId = 0;
     const intervalId = window.setInterval(() => {
-      if (window.turnstile) {
+      const api = getTurnstileApi();
+      if (api) {
         window.clearInterval(intervalId);
         window.clearTimeout(timeoutId);
-        resolve();
+        resolve(api);
       }
     }, 50);
 
@@ -66,26 +86,28 @@ async function waitForTurnstileApi(timeoutMs = 4000): Promise<void> {
   });
 }
 
-async function loadTurnstileScript(): Promise<void> {
-  if (window.turnstile) {
-    return;
+async function loadTurnstileScript(): Promise<TurnstileApi> {
+  const existingApi = getTurnstileApi();
+  if (existingApi) {
+    return existingApi;
   }
 
   if (turnstileScriptPromise) {
     return turnstileScriptPromise;
   }
 
-  turnstileScriptPromise = new Promise<void>((resolve, reject) => {
+  turnstileScriptPromise = new Promise<TurnstileApi>((resolve, reject) => {
     const existingScript = document.getElementById(TURNSTILE_SCRIPT_ID) as HTMLScriptElement | null;
 
     if (existingScript) {
-      if (window.turnstile) {
-        resolve();
+      const loadedApi = getTurnstileApi();
+      if (loadedApi) {
+        resolve(loadedApi);
         return;
       }
       if (existingScript.dataset.loaded === 'true') {
         void waitForTurnstileApi()
-          .then(() => resolve())
+          .then((api) => resolve(api))
           .catch((err: unknown) => reject(err));
         return;
       }
@@ -95,7 +117,7 @@ async function loadTurnstileScript(): Promise<void> {
       }
       existingScript.addEventListener('load', () => {
         void waitForTurnstileApi()
-          .then(() => resolve())
+          .then((api) => resolve(api))
           .catch((err: unknown) => reject(err));
       }, { once: true });
       existingScript.addEventListener('error', () => reject(new Error('Failed to load Turnstile script')), { once: true });
@@ -110,7 +132,7 @@ async function loadTurnstileScript(): Promise<void> {
     script.addEventListener('load', () => {
       script.dataset.loaded = 'true';
       void waitForTurnstileApi()
-        .then(() => resolve())
+        .then((api) => resolve(api))
         .catch((err: unknown) => reject(err));
     }, { once: true });
     script.addEventListener('error', () => {
@@ -121,7 +143,7 @@ async function loadTurnstileScript(): Promise<void> {
   });
 
   try {
-    await turnstileScriptPromise;
+    return await turnstileScriptPromise;
   } catch (err) {
     turnstileScriptPromise = null;
     throw err;
@@ -167,8 +189,9 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps): React
     setIsTurnstileReady(false);
 
     const currentWidgetId = widgetIdRef.current;
-    if (currentWidgetId && window.turnstile) {
-      window.turnstile.remove(currentWidgetId);
+    const turnstileApi = getTurnstileApi();
+    if (currentWidgetId && turnstileApi && typeof turnstileApi.remove === 'function') {
+      turnstileApi.remove(currentWidgetId);
     }
 
     widgetIdRef.current = null;
@@ -197,12 +220,12 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps): React
 
     const initializeTurnstile = async (): Promise<void> => {
       try {
-        await loadTurnstileScript();
-        if (isCancelled || !turnstileContainerRef.current || !window.turnstile || widgetIdRef.current) {
+        const turnstileApi = await loadTurnstileScript();
+        if (isCancelled || !turnstileContainerRef.current || widgetIdRef.current) {
           return;
         }
 
-        const currentWidgetId = window.turnstile.render(turnstileContainerRef.current, {
+        const currentWidgetId = turnstileApi.render(turnstileContainerRef.current, {
           sitekey: siteKey,
           callback: (token: string): void => {
             setTurnstileToken(token);
@@ -347,9 +370,9 @@ export function SupportDialog({ open, onOpenChange }: SupportDialogProps): React
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="turnstile">Verification</Label>
+              <Label htmlFor={TURNSTILE_CONTAINER_ID}>Verification</Label>
               <div
-                id="turnstile"
+                id={TURNSTILE_CONTAINER_ID}
                 ref={turnstileContainerRef}
                 className="min-h-[66px]"
               />
