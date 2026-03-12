@@ -17,13 +17,17 @@ import {
   Plus,
   Edit,
   Bell,
+  Download,
   ExternalLink,
+  Smartphone,
 } from 'lucide-react';
 import { useAuthContext } from '@/context/authContext';
 import { SupportDialog } from '@/components/support/SupportDialog';
 import { Seo, OrganizationSchema, WebSiteSchema, WebApplicationSchema, LocalBusinessSchema } from '@/components/seo';
 import { PAGE_SEO } from '@/constants/seo';
 import logoImage from '@/assets/images/logo.png';
+
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=za.co.remlic.mobile&pcampaignid=web_share';
 
 export default function LandingPage(): React.JSX.Element {
   const { isAuthenticated } = useAuthContext();
@@ -85,9 +89,19 @@ export default function LandingPage(): React.JSX.Element {
             PSIRA registrations, firearms licenses, vehicle discs, and training certificates - alerting you before
             anything expires.
           </p>
-          <div className="mt-10 flex justify-center gap-4">
+          <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <Button size="lg" asChild>
+              <a
+                href={PLAY_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Download className="mr-2 h-5 w-5" />
+                Download on Google Play
+              </a>
+            </Button>
             <Link to="/signup">
-              <Button size="lg">Signup</Button>
+              <Button size="lg" variant="secondary">Signup</Button>
             </Link>
             <Button size="lg" variant="outline" onClick={() => setSupportDialogOpen(true)}>
               <MessageCircle className="mr-2 h-5 w-5" />
@@ -216,11 +230,12 @@ export default function LandingPage(): React.JSX.Element {
 
       <section className="border-t py-20">
         <div className="container mx-auto px-4">
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-4xl">
             <div className="text-center">
-              <h2 className="text-3xl font-bold">Mobile App Scanning Status</h2>
+              <h2 className="text-3xl font-bold">Remlic Mobile App Is Live</h2>
               <p className="mt-4 text-muted-foreground">
-                We are actively rolling out mobile scanning features across key compliance record types.
+                Android app is now available on Google Play. Manage all records and scan Drivers Licence,
+                Firearm, and Vehicle records directly from your phone.
               </p>
             </div>
 
@@ -240,6 +255,45 @@ export default function LandingPage(): React.JSX.Element {
                     <span className="font-medium">Drivers Licence Scanning</span>
                   </div>
                   <Badge>Available</Badge>
+                </div>
+
+                <div className="flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <Target className="size-5 text-primary" />
+                    <span className="font-medium">Firearm Scanning</span>
+                  </div>
+                  <Badge>Available</Badge>
+                </div>
+
+                <div className="rounded-lg border bg-muted/40 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <Smartphone className="size-5 text-primary" />
+                      <span className="font-medium">Android</span>
+                    </div>
+                    <Badge>Available on Google Play</Badge>
+                  </div>
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                      <Smartphone className="size-5 text-primary" />
+                      <span className="font-medium">iOS</span>
+                    </div>
+                    <Badge variant="secondary">Coming soon</Badge>
+                  </div>
+                </div>
+
+                <div className="flex flex-col items-center gap-3 pt-2 sm:flex-row sm:justify-center">
+                  <Button asChild>
+                    <a
+                      href={PLAY_STORE_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <Download className="mr-2 h-4 w-4" />
+                      Download on Google Play
+                    </a>
+                  </Button>
+                  <p className="text-sm text-muted-foreground">iOS coming soon</p>
                 </div>
               </CardContent>
             </Card>
